@@ -1,0 +1,127 @@
+name: Build Windows downloads v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-windows-downloads-v2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: ${{ !contains(github.event.head_commit.message, 'Update Windows download archives') }}
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Generate, build, and package apps
+        shell: pwsh
+        run: |
+          $programTemplate = @'
+          using System;
+          using System.Drawing;
+          using System.Windows.Forms;
+
+          namespace Yuji1960App;
+
+          internal static class Program
+          {
+              [STAThread]
+              private static void Main()
+              {
+                  Application.EnableVisualStyles();
+                  Application.SetCompatibleTextRenderingDefault(false);
+                  Application.Run(new TrayContext());
+              }
+          }
+
+          internal sealed class TrayContext : ApplicationContext
+          {
+              private const string AppName = "__APP_NAME__";
+              private readonly NotifyIcon _notifyIcon;
+              private readonly System.Windows.Forms.Timer _timer;
+
+              public TrayContext()
+              {
+                  _notifyIcon = new NotifyIcon
+                  {
+                      Icon = SystemIcons.Application,
+                      Visible = true,
+                      Text = AppName,
+                      ContextMenuStrip = BuildMenu()
+                  };
+
+                  _timer = new System.Windows.Forms.Timer { Interval = 1000 };
+                  _timer.Tick += (_, _) => _notifyIcon.Text = $"{AppName} - {DateTime.Now:HH:mm:ss}";
+                  _timer.Start();
+              }
+
+              protected override void Dispose(bool disposing)
+              {
+                  if (disposing)
+                  {
+                      _timer.Dispose();
+                      _notifyIcon.Visible = false;
+                      _notifyIcon.Dispose();
+                  }
+                  base.Dispose(disposing);
+              }
+
+              private ContextMenuStrip BuildMenu()
+              {
+                  var menu = new ContextMenuStrip();
+                  menu.Items.Add(AppName, null, (_, _) => MessageBox.Show($"{AppName} v1.0.0", AppName));
+                  menu.Items.Add(new ToolStripSeparator());
+                  menu.Items.Add("終了", null, (_, _) => ExitThread());
+                  return menu;
+              }
+          }
+          '@
+
+          $projectTemplate = @'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>WinExe</OutputType>
+              <TargetFramework>net8.0-windows</TargetFramework>
+              <UseWindowsForms>true</UseWindowsForms>
+              <EnableWindowsTargeting>true</EnableWindowsTargeting>
+              <Nullable>enable</Nullable>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <AssemblyName>__APP_NAME__</AssemblyName>
+              <RootNamespace>Yuji1960App</RootNamespace>
+              <Version>1.0.0</Version>
+              <Product>__APP_NAME__</Product>
+            </PropertyGroup>
+          </Project>
+          '@
+
+          New-Item -ItemType Directory -Force -Path downloads | Out-Null
+          foreach ($app in @("SystemTrayMonitor", "YsSystemMonitor")) {
+            New-Item -ItemType Directory -Force -Path "generated/$app" | Out-Null
+            $programTemplate.Replace("__APP_NAME__", $app) | Set-Content -Path "generated/$app/Program.cs" -Encoding UTF8
+            $projectTemplate.Replace("__APP_NAME__", $app) | Set-Content -Path "generated/$app/$app.csproj" -Encoding UTF8
+            dotnet publish "generated/$app/$app.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false -o "publish/$app"
+            Compress-Archive -Path "publish/$app/*" -DestinationPath "downloads/$app-windows.zip" -Force
+          }
+          if (Test-Path downloads/.gitkeep) { Remove-Item downloads/.gitkeep -Force }
+
+      - name: Commit download archives
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add downloads/SystemTrayMonitor-windows.zip downloads/YsSystemMonitor-windows.zip
+          if (git diff --cached --quiet) {
+            Write-Host "No download archive changes."
+          } else {
+            git commit -m "Update Windows download archives"
+            git push
+          }
