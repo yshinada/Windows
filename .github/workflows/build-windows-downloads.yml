@@ -1,0 +1,268 @@
+name: Build Windows downloads
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-windows-downloads.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: ${{ !contains(github.event.head_commit.message, 'Update Windows download archives') }}
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Generate Windows app sources
+        shell: pwsh
+        run: |
+          $programTemplate = @'
+          using System;
+          using System.Drawing;
+          using System.Drawing.Drawing2D;
+          using System.Runtime.InteropServices;
+          using System.Windows.Forms;
+
+          namespace GeneratedTrayApp;
+
+          internal static class Program
+          {
+              [STAThread]
+              private static void Main()
+              {
+                  Application.EnableVisualStyles();
+                  Application.SetCompatibleTextRenderingDefault(false);
+                  Application.Run(new TrayContext());
+              }
+          }
+
+          internal sealed class TrayContext : ApplicationContext
+          {
+              private const string AppName = "__APP_NAME__";
+              private readonly NotifyIcon _notifyIcon;
+              private readonly Timer _timer;
+              private CpuTimes? _previous;
+              private Icon? _icon;
+
+              public TrayContext()
+              {
+                  _notifyIcon = new NotifyIcon
+                  {
+                      Visible = true,
+                      Text = AppName,
+                      Icon = BuildIcon(0, 0),
+                      ContextMenuStrip = BuildMenu()
+                  };
+
+                  _timer = new Timer { Interval = 1000 };
+                  _timer.Tick += (_, _) => UpdateMetrics();
+                  _timer.Start();
+                  UpdateMetrics();
+              }
+
+              protected override void Dispose(bool disposing)
+              {
+                  if (disposing)
+                  {
+                      _timer.Dispose();
+                      _notifyIcon.Visible = false;
+                      _notifyIcon.Dispose();
+                      _icon?.Dispose();
+                  }
+
+                  base.Dispose(disposing);
+              }
+
+              private ContextMenuStrip BuildMenu()
+              {
+                  var menu = new ContextMenuStrip();
+                  menu.Items.Add(AppName, null, (_, _) => MessageBox.Show(CurrentText(), AppName));
+                  menu.Items.Add(new ToolStripSeparator());
+                  menu.Items.Add("終了", null, (_, _) => ExitThread());
+                  return menu;
+              }
+
+              private void UpdateMetrics()
+              {
+                  double cpu = GetCpuUsage();
+                  double memory = GetMemoryUsage();
+                  _notifyIcon.Text = CurrentText(cpu, memory);
+
+                  Icon next = BuildIcon(cpu, memory);
+                  _notifyIcon.Icon = next;
+                  _icon?.Dispose();
+                  _icon = next;
+              }
+
+              private string CurrentText() => CurrentText(GetCpuUsage(), GetMemoryUsage());
+
+              private static string CurrentText(double cpu, double memory)
+              {
+                  return $"__APP_NAME__\nCPU {cpu:0}% / Memory {memory:0}%";
+              }
+
+              private double GetCpuUsage()
+              {
+                  if (!NativeMethods.GetSystemTimes(out FileTime idle, out FileTime kernel, out FileTime user))
+                  {
+                      return 0;
+                  }
+
+                  var current = new CpuTimes(ToUInt64(idle), ToUInt64(kernel), ToUInt64(user));
+                  if (_previous is null)
+                  {
+                      _previous = current;
+                      return 0;
+                  }
+
+                  CpuTimes previous = _previous.Value;
+                  _previous = current;
+
+                  ulong idleDelta = current.Idle - previous.Idle;
+                  ulong kernelDelta = current.Kernel - previous.Kernel;
+                  ulong userDelta = current.User - previous.User;
+                  ulong total = kernelDelta + userDelta;
+
+                  if (total == 0) return 0;
+                  return Math.Clamp((double)(total - idleDelta) * 100.0 / total, 0, 100);
+              }
+
+              private static double GetMemoryUsage()
+              {
+                  var status = new MemoryStatusEx();
+                  status.Length = (uint)Marshal.SizeOf<MemoryStatusEx>();
+                  return NativeMethods.GlobalMemoryStatusEx(ref status) ? status.MemoryLoad : 0;
+              }
+
+              private static ulong ToUInt64(FileTime fileTime)
+              {
+                  return ((ulong)fileTime.HighDateTime << 32) | fileTime.LowDateTime;
+              }
+
+              private static Icon BuildIcon(double cpu, double memory)
+              {
+                  using var bitmap = new Bitmap(32, 32);
+                  using Graphics graphics = Graphics.FromImage(bitmap);
+                  graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                  graphics.Clear(Color.Transparent);
+                  DrawArc(graphics, Color.FromArgb(108, 224, 210), cpu, 4);
+                  DrawArc(graphics, Color.FromArgb(246, 160, 93), memory, 10);
+                  using var font = new Font("Segoe UI", 7, FontStyle.Bold, GraphicsUnit.Pixel);
+                  using var brush = new SolidBrush(Color.White);
+                  string text = Math.Round(cpu).ToString("0");
+                  SizeF size = graphics.MeasureString(text, font);
+                  graphics.DrawString(text, font, brush, (32 - size.Width) / 2, (32 - size.Height) / 2);
+
+                  IntPtr handle = bitmap.GetHicon();
+                  try
+                  {
+                      using Icon temp = Icon.FromHandle(handle);
+                      return (Icon)temp.Clone();
+                  }
+                  finally
+                  {
+                      NativeMethods.DestroyIcon(handle);
+                  }
+              }
+
+              private static void DrawArc(Graphics graphics, Color color, double value, int inset)
+              {
+                  double clamped = Math.Clamp(double.IsFinite(value) ? value : 0, 0, 100);
+                  var bounds = new Rectangle(inset, inset, 32 - inset * 2, 32 - inset * 2);
+                  using var backgroundPen = new Pen(Color.FromArgb(70, 90, 90, 90), 4);
+                  using var valuePen = new Pen(color, 4) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                  graphics.DrawArc(backgroundPen, bounds, -90, 360);
+                  graphics.DrawArc(valuePen, bounds, -90, (float)(360.0 * clamped / 100.0));
+              }
+          }
+
+          internal readonly record struct CpuTimes(ulong Idle, ulong Kernel, ulong User);
+
+          [StructLayout(LayoutKind.Sequential)]
+          internal struct FileTime
+          {
+              public uint LowDateTime;
+              public uint HighDateTime;
+          }
+
+          [StructLayout(LayoutKind.Sequential)]
+          internal struct MemoryStatusEx
+          {
+              public uint Length;
+              public uint MemoryLoad;
+              public ulong TotalPhys;
+              public ulong AvailPhys;
+              public ulong TotalPageFile;
+              public ulong AvailPageFile;
+              public ulong TotalVirtual;
+              public ulong AvailVirtual;
+              public ulong AvailExtendedVirtual;
+          }
+
+          internal static class NativeMethods
+          {
+              [DllImport("kernel32.dll", SetLastError = true)]
+              internal static extern bool GetSystemTimes(out FileTime idleTime, out FileTime kernelTime, out FileTime userTime);
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              internal static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx status);
+
+              [DllImport("user32.dll", SetLastError = true)]
+              internal static extern bool DestroyIcon(IntPtr handle);
+          }
+          '@
+
+          $projectTemplate = @'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>WinExe</OutputType>
+              <TargetFramework>net8.0-windows</TargetFramework>
+              <UseWindowsForms>true</UseWindowsForms>
+              <EnableWindowsTargeting>true</EnableWindowsTargeting>
+              <Nullable>enable</Nullable>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <AssemblyName>__APP_NAME__</AssemblyName>
+              <RootNamespace>GeneratedTrayApp</RootNamespace>
+              <Version>1.0.0</Version>
+              <Product>__APP_NAME__</Product>
+            </PropertyGroup>
+          </Project>
+          '@
+
+          foreach ($app in @("SystemTrayMonitor", "YsSystemMonitor")) {
+            New-Item -ItemType Directory -Force -Path "generated/$app" | Out-Null
+            $programTemplate.Replace("__APP_NAME__", $app) | Set-Content -Path "generated/$app/Program.cs" -Encoding UTF8
+            $projectTemplate.Replace("__APP_NAME__", $app) | Set-Content -Path "generated/$app/$app.csproj" -Encoding UTF8
+          }
+
+      - name: Build and package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path downloads | Out-Null
+          foreach ($app in @("SystemTrayMonitor", "YsSystemMonitor")) {
+            dotnet publish "generated/$app/$app.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false -o "publish/$app"
+            Compress-Archive -Path "publish/$app/*" -DestinationPath "downloads/$app-windows.zip" -Force
+          }
+          if (Test-Path downloads/.gitkeep) { Remove-Item downloads/.gitkeep -Force }
+
+      - name: Commit download archives
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add downloads/SystemTrayMonitor-windows.zip downloads/YsSystemMonitor-windows.zip
+          if (git diff --cached --quiet) {
+            Write-Host "No download archive changes."
+          } else {
+            git commit -m "Update Windows download archives"
+            git push
+          }
