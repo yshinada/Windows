@@ -8,6 +8,26 @@ const programs = [
     summary: "札幌市西区の天気を素早く確認できるWindows向けツールです。",
     tags: ["Windows", "天気", "地域情報"],
     download: "#"
+  },
+  {
+    name: "SystemTrayMonitor",
+    platform: "windows",
+    version: "v1.0.0",
+    icon: "ST",
+    color: "#2f8d7e",
+    summary: "通知領域に常駐し、CPUとメモリ使用率を小さなグラフで確認できるモニターです。",
+    tags: ["Windows", "CPU", "メモリ"],
+    download: "https://raw.githubusercontent.com/yshinada/Windows/main/downloads/SystemTrayMonitor-windows.zip"
+  },
+  {
+    name: "YsSystemMonitor",
+    platform: "windows",
+    version: "v1.0.0",
+    icon: "YM",
+    color: "#6f72d8",
+    summary: "CPU使用率、メモリ使用量、対応環境ではCPU温度も確認できるWindows 11向けモニターです。",
+    tags: ["Windows", "システム", "常駐"],
+    download: "https://raw.githubusercontent.com/yshinada/Windows/main/downloads/YsSystemMonitor-windows.zip"
   }
 ];
 
@@ -31,7 +51,6 @@ function createProgramCard(program) {
     </div>
     <div class="card-actions">
       <a class="button primary" href="${program.download}">ダウンロード</a>
-      <a class="button secondary" href="#support">問い合わせ</a>
     </div>
   `;
   return card;
