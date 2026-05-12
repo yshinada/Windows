@@ -10,34 +10,14 @@ const programs = [
     download: "https://raw.githubusercontent.com/yshinada/Windows/main/downloads/sysinfo.zip"
   },
   {
-    name: "Sapporo Nishi Weather",
+    name: "SClock",
     platform: "windows",
     version: "v1.0.0",
-    icon: "SW",
-    color: "#b86434",
-    summary: "札幌市西区の天気を素早く確認できるWindows向けツールです。",
-    tags: ["Windows", "天気", "地域情報"],
-    download: "#"
-  },
-  {
-    name: "SystemTrayMonitor",
-    platform: "windows",
-    version: "v1.0.0",
-    icon: "ST",
-    color: "#2f8d7e",
-    summary: "通知領域に常駐し、CPUとメモリ使用率を小さなグラフで確認できるモニターです。",
-    tags: ["Windows", "CPU", "メモリ"],
-    download: "https://raw.githubusercontent.com/yshinada/Windows/main/downloads/SystemTrayMonitor-windows.zip"
-  },
-  {
-    name: "YsSystemMonitor",
-    platform: "windows",
-    version: "v1.0.0",
-    icon: "YM",
-    color: "#6f72d8",
-    summary: "CPU使用率、メモリ使用量、対応環境ではCPU温度も確認できるWindows 11向けモニターです。",
-    tags: ["Windows", "システム", "常駐"],
-    download: "https://raw.githubusercontent.com/yshinada/Windows/main/downloads/YsSystemMonitor-windows.zip"
+    icon: "SC",
+    color: "#d06a0b",
+    summary: "デスクトップで手軽に時刻を確認できるシンプルな Windows 向けクロックです。",
+    tags: ["Windows", "時計", "デスクトップ"],
+    download: "https://raw.githubusercontent.com/yshinada/Windows/main/downloads/SClock.zip"
   }
 ];
 
