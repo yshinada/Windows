@@ -1,5 +1,15 @@
 const programs = [
   {
+    name: "sysinfo",
+    platform: "windows",
+    version: "v1.0.0",
+    icon: "SI",
+    color: "#0b79d0",
+    summary: "通知領域の近くに常駐し、CPU とメモリの使用状況を小さな表示で確認できる Windows 向けツールです。",
+    tags: ["Windows", "CPU", "メモリ"],
+    download: "https://raw.githubusercontent.com/yshinada/Windows/main/downloads/sysinfo.zip"
+  },
+  {
     name: "Sapporo Nishi Weather",
     platform: "windows",
     version: "v1.0.0",
